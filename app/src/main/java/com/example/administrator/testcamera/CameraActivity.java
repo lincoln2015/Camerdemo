@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 
+import android.graphics.Rect;
 import android.hardware.Camera;
+
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
 import android.net.Uri;
@@ -21,7 +23,9 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 public class CameraActivity  extends Activity {
 
@@ -33,6 +37,20 @@ public class CameraActivity  extends Activity {
 
     private boolean isRecording = false;
     private MediaRecorder mMediaRecorder;
+    private boolean isRecordingTimeLapse = false;
+
+    class MyFaceDetectionListener implements Camera.FaceDetectionListener {
+
+        @Override
+        public void onFaceDetection(Camera.Face[] faces, Camera camera) {
+            Log.d(TAG, "onFaceDetection run ");
+            if (faces.length > 0){
+                Log.d(TAG, "face detected: "+ faces.length +
+                        " Face 1 Location X: " + faces[0].rect.centerX() +
+                        "Y: " + faces[0].rect.centerY() );
+            }
+        }
+    }
 
     /** Check if this device has a camera */
     private boolean checkCameraHardware(Context context) {
@@ -93,6 +111,54 @@ public class CameraActivity  extends Activity {
 
         // Step 4: Set output file
         mMediaRecorder.setOutputFile(getOutputMediaFile(MEDIA_TYPE_VIDEO).toString());
+
+        // Step 5: Set the preview output
+        mMediaRecorder.setPreviewDisplay(mPreview.getHolder().getSurface());
+
+        // Step 6: Prepare configured MediaRecorder
+        try {
+            mMediaRecorder.prepare();
+        } catch (IllegalStateException e) {
+            Log.d(TAG, "IllegalStateException preparing MediaRecorder: " + e.getMessage());
+            releaseMediaRecorder();
+            return false;
+        } catch (IOException e) {
+            Log.d(TAG, "IOException preparing MediaRecorder: " + e.getMessage());
+            releaseMediaRecorder();
+            return false;
+        }
+        return true;
+    }
+
+    private boolean prepareVideoRecorderTimeLapse(){
+
+        mCamera = getCameraInstance();
+        mMediaRecorder = new MediaRecorder();
+
+        mCamera.setDisplayOrientation(90);
+
+        // Step 1: Unlock and set camera to MediaRecorder
+        mCamera.unlock();
+        mMediaRecorder.setCamera(mCamera);
+
+        // Step 2: Set sources
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.DEFAULT);
+      //  mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
+    //    mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+
+        // Step 3: Set a CamcorderProfile (requires API Level 8 or higher)
+      // mMediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH));
+        if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_TIME_LAPSE_HIGH)) {
+            Log.d(TAG, "prepareVideoRecorderTimeLapse QUALITY_TIME_LAPSE_HIGH");
+            mMediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_TIME_LAPSE_HIGH));
+        }
+        else
+            Log.d(TAG, "prepareVideoRecorderTimeLapse no QUALITY_TIME_LAPSE_HIGH");
+
+        mMediaRecorder.setCaptureRate(5); // capture a frame every 10 seconds
+        // Step 4: Set output file
+        if (getOutputMediaFile(MEDIA_TYPE_VIDEO)!= null)
+          mMediaRecorder.setOutputFile(getOutputMediaFile(MEDIA_TYPE_VIDEO).toString());
 
         // Step 5: Set the preview output
         mMediaRecorder.setPreviewDisplay(mPreview.getHolder().getSurface());
@@ -178,6 +244,47 @@ public class CameraActivity  extends Activity {
         }
     };
 
+    private boolean prepareFastVideoRecorder() {
+
+        File mVideoFile;
+        int cameratype = 1;
+        mMediaRecorder = new MediaRecorder();
+        try {
+            mCamera.setPreviewDisplay(null);
+        } catch (java.io.IOException ioe) {
+            Log.e("Bhuvnesh", "IOException nullifying preview display: " + ioe.getMessage());
+        }
+        mCamera.stopPreview();
+        // Step 1: Unlock and set camera to MediaRecorder
+        mCamera.unlock();
+        mMediaRecorder.setCamera(mCamera);
+        // Step 2: Set sources
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.DEFAULT);
+        mMediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_TIME_LAPSE_480P));
+        //mMediaRecorder.setCaptureRate(0.1); // capture a frame every 10 seconds
+        mMediaRecorder.setCaptureRate(5); // capture a frame every 1 seconds
+        // Step 4: Set output file to the socket
+        mVideoFile = new File(getOutputMediaFile(MEDIA_TYPE_VIDEO).toString());
+        mMediaRecorder.setOutputFile(mVideoFile.getAbsolutePath());
+        if (cameratype == 1)
+            mMediaRecorder.setOrientationHint(90);
+        else if (cameratype == 2)
+            mMediaRecorder.setOrientationHint(270);
+        mMediaRecorder.setMaxDuration(60000);
+     //   mMediaRecorder.setOnInfoListener(this);
+        // Step 5: Set the preview output
+        mMediaRecorder.setPreviewDisplay(mPreview.getHolder().getSurface());
+        try {
+            mMediaRecorder.prepare();
+        } catch (IllegalStateException e) {
+            releaseMediaRecorder();
+            return false;
+        } catch (IOException e) {
+            releaseMediaRecorder();
+            return false;
+        }
+        return true;
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -192,6 +299,23 @@ public class CameraActivity  extends Activity {
         mPreview = new CameraPreview(this, mCamera);
         FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
         preview.addView(mPreview);
+
+        mCamera.setFaceDetectionListener(new MyFaceDetectionListener());
+
+        // set Camera parameters
+        Camera.Parameters params = mCamera.getParameters();
+
+        if (params.getMaxNumMeteringAreas() > 0){ // check that metering areas are supported
+            List<Camera.Area> meteringAreas = new ArrayList<Camera.Area>();
+            Log.d(TAG, "params.getMaxNumMeteringAreas(): " + params.getMaxNumMeteringAreas());
+            Rect areaRect1 = new Rect(-100, -100, 100, 100);    // specify an area in center of image
+            meteringAreas.add(new Camera.Area(areaRect1, 600)); // set weight to 60%
+            Rect areaRect2 = new Rect(800, -1000, 1000, -800);  // specify an area in upper right of image
+            meteringAreas.add(new Camera.Area(areaRect2, 400)); // set weight to 40%
+            params.setMeteringAreas(meteringAreas);
+        }
+
+        mCamera.setParameters(params);
 
         // Add a listener to the Capture button
         Button captureButton = (Button) findViewById(R.id.button_capture);
@@ -220,7 +344,7 @@ public class CameraActivity  extends Activity {
                             mCamera.lock();         // take camera access back from MediaRecorder
 
                             // inform the user that recording has stopped
-                           // setCaptureButtonText("Capture");
+                            // setCaptureButtonText("Capture");
                             isRecording = false;
                         } else {
 
@@ -231,8 +355,68 @@ public class CameraActivity  extends Activity {
                                 mMediaRecorder.start();
 
                                 // inform the user that recording has started
-                               // setCaptureButtonText("Stop");
+                                // setCaptureButtonText("Stop");
                                 isRecording = true;
+                            } else {
+                                // prepare didn't work, release the camera
+                                releaseMediaRecorder();
+                                // inform user
+                            }
+                        }
+                    }
+                }
+        );
+
+        // Add a listener to the Capture button
+        Button timeLapsevideoButton = (Button) findViewById(R.id.time_lapse_video);
+        /*
+        timeLapsevideoButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+
+
+
+                if (prepareFastVideoRecorder()) {
+
+                    mMediaRecorder.start();
+
+                } else {
+
+                    releaseMediaRecorder();
+                }
+            }
+        }
+        );
+*/
+
+
+        timeLapsevideoButton.setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+
+                        if (isRecordingTimeLapse) {
+                            // stop recording and release camera
+                            mMediaRecorder.stop();  // stop the recording
+                            releaseMediaRecorder(); // release the MediaRecorder object
+                            mCamera.lock();         // take camera access back from MediaRecorder
+
+                            // inform the user that recording has stopped
+                            // setCaptureButtonText("Capture");
+                            isRecordingTimeLapse = false;
+                        } else {
+
+                            // initialize video camera
+                         //   if (prepareFastVideoRecorder()) {
+                            if (prepareVideoRecorderTimeLapse()) {
+
+                                // Camera is available and unlocked, MediaRecorder is prepared,
+                                // now you can start recording
+                                mMediaRecorder.start();
+
+                                // inform the user that recording has started
+                                // setCaptureButtonText("Stop");
+                                isRecordingTimeLapse = true;
                             } else {
                                 // prepare didn't work, release the camera
                                 releaseMediaRecorder();

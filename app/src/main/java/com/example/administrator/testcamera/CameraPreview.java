@@ -31,6 +31,17 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
         mHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
     }
 
+    public void startFaceDetection(){
+        // Try starting Face Detection
+        Camera.Parameters params = mCamera.getParameters();
+        Log.d(TAG, "startFaceDetection: params.getMaxNumDetectedFaces()" + params.getMaxNumDetectedFaces());
+        // start face detection only *after* preview has started
+        if (params.getMaxNumDetectedFaces() > 0){
+            // camera supports face detection, so can start it:
+            mCamera.startFaceDetection();
+        }
+    }
+
     public void surfaceCreated(SurfaceHolder holder) {
         // The Surface has been created, now tell the camera where to draw the preview.
         try {
@@ -39,6 +50,8 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
                 mCamera.startPreview();
 
                 mCamera.setDisplayOrientation(90);
+
+                startFaceDetection(); // start face detection feature
             }
         } catch (IOException e) {
             Log.d(TAG, "Error setting camera preview: " + e.getMessage());
@@ -72,6 +85,8 @@ public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
         try {
             mCamera.setPreviewDisplay(mHolder);
             mCamera.startPreview();
+
+            startFaceDetection(); // re-start face detection feature
 
         } catch (Exception e){
             Log.d(TAG, "Error starting camera preview: " + e.getMessage());
